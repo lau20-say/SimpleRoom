@@ -1,106 +1,3 @@
-const socket = io('/')
-const videoGrid = document.getElementById('videoGrid')
-const myVideo = document.createElement('video')
-const myAva = "https://i.pinimg.com/736x/94/3c/df/943cdfbd0e3d03859e0ba4f1398dcf84.jpg";
-let myId;
-myVideo.muted = true
-
-var peer = new Peer()
-
-const myPeer = new Peer(undefined, {
-	path: '/peerjs',
-	host: '/',
-	port: '5000',
-})
-
-const peers = {}
-let myVideoStream
-
-socket.on('user-disconnected', (userId) => {
-	const vde = document.getElementById(`user-${userId}`);
-	const ava = document.getElementById(`avatar-${userId}`);
-
-	if (vde) vde.remove();
-	if (ava) ava.remove();
-	updateVideoGridClass();
-	if (peers[userId]) peers[userId].close()
-})
-socket.on("disconnect", () => {
-	socket.emit("disconnect", myId);
-});
-peer.on('open', (id) => {
-	myId = id;
-	socket.emit('join-room', ROOM_ID, id, myAva)
-	navigator.mediaDevices
-		.getUserMedia({
-			video: true,
-			audio: false,
-		})
-		.then((stream) => {
-			myVideoStream = stream
-			addVideoStream(stream, myId)
-
-			socket.on('user-connected', (userId) => {
-				connectToNewUser(userId, stream)
-			})
-
-			peer.on('call', (call) => {
-				call.answer(stream)
-				const usid = call.metadata.userId;
-				console.log(usid)
-				const video = document.createElement('video')
-				call.on('stream', (userVideoStream) => {
-					addVideoStream(userVideoStream, usid)
-				})
-			})
-
-			let text = $('input')
-
-			$('html').keydown(function (e) {
-				if (e.which == 13 && text.val().length !== 0) {
-					socket.emit('message', text.val())
-					text.val('')
-				}
-			})
-
-			socket.on('createMessage', (message, userId) => {
-				$('ul').append(`<li >
-								<span class="messageHeader">
-									<span>
-										From 
-										<span class="messageSender">Someone</span> 
-										to 
-										<span class="messageReceiver">Everyone:</span>
-									</span>
-
-									${new Date().toLocaleString('en-US', {
-					hour: 'numeric',
-					minute: 'numeric',
-					hour12: true,
-				})}
-								</span>
-
-								<span class="message">${message}</span>
-							
-							</li>`)
-				scrollToBottom()
-			})
-		})
-
-})
-
-const connectToNewUser = (userId, stream) => {
-	const call = peer.call(userId, stream, { metadata: { userId: myId } })
-	const video = document.createElement('video')
-	call.on('stream', (userVideoStream) => {
-		addVideoStream(userVideoStream, userId)
-	})
-	call.on('close', () => {
-		video.remove()
-	})
-
-	peers[userId] = call
-}
 function updateVideoGridClass() {
 	const videoGrid = document.getElementById("videoGrid");
 	const videoElements = videoGrid.children.length;
@@ -126,84 +23,222 @@ function updateVideoGridClass() {
 		videoGrid.classList.add("eight-set");
 	}
 }
-const addVideoStream = (stream, userId) => {
-	if (document.getElementById(`user-${userId}`)) {
-		return;
-	}
-	const video = document.createElement('video')
-	video.srcObject = stream;
-	video.autoplay = true;
-	video.id = `user-${userId}`;
-	video.style.transform = "scaleX(-1)";
-	video.playsInline = true;
-	video.classList.add("card_video_mute")
-	video.addEventListener('loadedmetadata', () => {
-		video.play()
-	})
-	videoGrid.append(video)
-	updateVideoGridClass();
-}
 
+const socket = io('/')
+let myId, myAva = "https://i.pinimg.com/736x/1b/f8/28/1bf82870c80483a1e1728be4fa535b11.jpg";
+const videoGrid = document.getElementById('videoGrid')
+var peer = new Peer()
+const myPeer = new Peer(undefined, {
+	path: '/peerjs',
+	host: '/',
+	port: '5000',
+
+})
+
+let peers = {};
+let myVideoStream;
+
+peer.on('open', (id) => {
+	myId = id;
+	socket.emit('join-room', ROOM_ID, myId, myAva)
+	AddUser(myId, myAva)
+	socket.on("all-users", (allUser) => {
+		allUser.forEach(user => {
+			AddUser(user.userId, user.userAvatar);
+		});
+	})
+	socket.on('user-connected', (toId, toAva) => {
+		AddUser(toId, toAva);
+	})
+	socket.on("user-disconnected", (userId) => {
+		RemoveUser(userId);
+	})
+	peer.on('call', function (call) {
+		const UserID = call.metadata.userID;
+		call.answer();
+		call.on('stream', (stream) => {
+			console.log(UserID, stream)
+			OnCamUser(UserID, stream)
+		})
+
+	});
+	socket.on("disconnect", () => {
+		socket.emit("disconnect")
+	});
+	let text = $('input')
+
+	$('html').keydown(function (e) {
+		if (e.which == 13 && text.val().length !== 0) {
+			socket.emit('message', text.val())
+			text.val('')
+		}
+	})
+
+	socket.on('createMessage', (message, userId) => {
+		const messageClass = userId === myId ? 'myMessage' : 'otherMessage'; // Xác định class dựa trên userId
+
+		$('ul').append(`
+        <li class="${messageClass}">
+            <span class="messageHeader">
+                <span>
+                    From 
+                    <span class="messageSender">${userId === myId ? 'You' : 'Someone'}</span> 
+                    to 
+                    <span class="messageReceiver">Everyone:</span>
+                </span>
+                ${new Date().toLocaleString('en-US', {
+			hour: 'numeric',
+			minute: 'numeric',
+			hour12: true,
+		})}
+            </span>
+            <span class="messageContent">${message}</span>
+        </li>
+    `);
+
+		scrollToBottom();
+	});
+
+
+})
+
+
+const AddUser = (id, ava) => {
+	if (document.getElementById(`user-${id}`)) {
+		document.getElementById(`user-${id}`).remove();
+	}
+	const UserDiv = document.createElement('div');
+	UserDiv.id = `user-${id}`;
+
+	const Avatar = document.createElement('div');
+	const Video = document.createElement('video');
+
+	Avatar.id = `avatar-${id}`
+	Avatar.classList.add("card_video_mute");
+	Avatar.innerHTML = `<img src="${ava}" class="card_video_mute_img" alt="">`;
+	UserDiv.appendChild(Avatar);
+
+	Video.srcObject = null;
+	Video.autoplay = true;
+	Video.id = `video-${id}`
+	Video.classList.add("card_video_mute")
+	Video.muted = true;
+	Video.classList.add("camera-off-st")
+	Video.style.transform = "scaleX(-1)";
+	Video.playsInline = true;
+	Video.addEventListener('loadedmetadata', () => {
+		Video.play()
+	})
+	UserDiv.appendChild(Video)
+	videoGrid.appendChild(UserDiv);
+	updateVideoGridClass()
+
+
+}
+const RemoveUser = (id) => {
+	console.log(id)
+	const userElement = document.getElementById(`user-${id}`);
+	if (userElement) {
+		userElement.remove();
+	}
+	updateVideoGridClass()
+
+}
+const OnCamUser = (id, stream) => {
+	document.getElementById(`avatar-${id}`).classList.add("camera-off-st");
+	document.getElementById(`video-${id}`).srcObject = stream;
+	document.getElementById(`video-${id}`).classList.remove("camera-off-st")
+	document.getElementById(`video-${id}`).play();
+	const video = document.getElementById(`video-${id}`);
+	video.addEventListener('loadedmetadata', () => {
+		video.play().catch(err => console.error("Error playing video:", err));
+	});
+}
+const OffCamUser = (id) => {
+	const videoElement = document.getElementById(`video-${id}`);
+	const avatarElement = document.getElementById(`avatar-${id}`);
+
+	if (videoElement) {
+		videoElement.classList.add("camera-off-st");
+
+		videoElement.srcObject = null;
+	} else {
+		console.warn(`Video element for user ${id} not found.`);
+	}
+
+	if (avatarElement) {
+		avatarElement.classList.remove("camera-off-st");
+	} else {
+		console.warn(`Avatar element for user ${id} not found.`);
+	}
+};
+
+socket.on("user-off-cam", (userID) => {
+	OffCamUser(userID)
+})
+const OnCam = () => {
+	const videoButton = document.querySelector('.mainVideoButton'); // Tìm phần tử nút bật/tắt camera
+
+	if (!myVideoStream) {
+		navigator.mediaDevices.getUserMedia({ video: true }).then((stream) => {
+			myVideoStream = stream;
+			OnCamUser(myId, stream);
+
+			socket.emit("on-my-cam");
+
+			socket.on("list-user", (list) => {
+				list.forEach((user) => {
+					if (user.userId !== myId) {
+						const call = peer.call(user.userId, stream, {
+							metadata: {
+								userID: myId
+							}
+						});
+						call.on('error', (err) => {
+							console.error("Error in call:", err);
+						});
+					}
+				});
+			});
+
+			videoButton.innerHTML = `
+                <i class="fas fa-video"></i>
+                <span>Stop Video</span>
+            `;
+		});
+	} else {
+		myVideoStream.getTracks().forEach((track) => track.stop());
+		myVideoStream = null;
+
+		socket.emit("off-cam", myId);
+		OffCamUser(myId);
+
+		videoButton.innerHTML = `
+            <i class="fa-solid fa-video-slash"></i>
+            <span>Play Video</span>
+        `;
+	}
+};
+
+const toggleChat = () => {
+	const div = document.querySelector('.mainRight');
+
+	if (div) {
+		const hasClass = div.classList.contains('camera-off-st');
+
+		if (hasClass) {
+			div.classList.remove("camera-off-st");
+		} else {
+			div.classList.add("camera-off-st");
+		}
+	} else {
+		console.warn('Không tìm thấy phần tử có class "mainRight".');
+	}
+};
+const leave = () => {
+	window.location.href = "/end-call"
+}
 const scrollToBottom = () => {
 	var d = $('.mainChatWindow')
 	d.scrollTop(d.prop('scrollHeight'))
-}
-
-const playStop = () => {
-	console.log('object')
-	let enabled = myVideoStream.getVideoTracks()[0].enabled
-	if (enabled) {
-		myVideoStream.getVideoTracks()[0].enabled = false
-		setPlayVideo()
-	} else {
-		setStopVideo()
-		myVideoStream.getVideoTracks()[0].enabled = true
-	}
-}
-socket.on("user-off-cam", (userId, avatar) => {
-
-	addAvatar(avatar, userId)
-})
-socket.on("user-on-cam", (userId) => {
-
-	removeAvatar(userId)
-})
-const setStopVideo = () => {
-	socket.emit("on-cam", myId)
-	const html = `
-	  <i class="fas fa-video"></i>
-	  <span>Stop Video</span>
-	`
-	document.querySelector('.mainVideoButton').innerHTML = html
-}
-
-const setPlayVideo = () => {
-	socket.emit("off-cam", myId)
-
-	const html = `
-	<i class="stop fas fa-video-slash"></i>
-	  <span>Play Video</span>
-	`
-	document.querySelector('.mainVideoButton').innerHTML = html
-}
-const addAvatar = (ava, userId) => {
-	const avatar = document.getElementById(`user-${userId}`)
-	avatar.classList.add("camera-off-st")
-	const div = document.createElement('div')
-	div.id = `avatar-${userId}`;
-	const html = `<div class="card_video_mute">
-        <img src="${ava}" class="card_video_mute_img" alt="">
-        <div class="camera_off"><i class="fa-solid fa-video-slash"></i></div>
-        <div class="mic_off"><i class="fa-solid fa-microphone-slash"></i></div>
-    </div>`;
-	div.innerHTML = html;
-	videoGrid.append(div);
-};
-const removeAvatar = (userId) => {
-	const ava = document.getElementById(`avatar-${userId}`);
-	const vid = document.getElementById(`user-${userId}`);
-	if (ava) {
-		ava.remove();
-	}
-	vid.classList.remove("camera-off-st")
 }

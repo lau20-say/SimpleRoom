@@ -7,7 +7,8 @@ const peerServer = ExpressPeerServer(server, {
 	debug: true,
 })
 const { v4: uuidv4 } = require('uuid')
-const peerToAvatar = {};
+
+const rooms = {};
 
 app.use('/peerjs', peerServer)
 app.use(express.static('public'))
@@ -16,6 +17,9 @@ app.set('view engine', 'ejs')
 app.get('/', (req, res) => {
 	res.redirect(`/${uuidv4()}`)
 })
+app.get('/end-call', (req, res) => {
+	res.render('endcall')
+})
 
 app.get('/:room', (req, res) => {
 	res.render('room', { roomId: req.params.room })
@@ -23,22 +27,28 @@ app.get('/:room', (req, res) => {
 
 io.on('connection', (socket) => {
 	socket.on('join-room', (roomId, userId, userAvatar) => {
-		peerToAvatar[userId] = userAvatar;
+		if (!rooms[roomId]) rooms[roomId] = [];
+		socket.emit('all-users', rooms[roomId]);
+		rooms[roomId].push({ userId, userAvatar });
 		socket.join(roomId)
-		socket.to(roomId).emit('user-connected', userId)
-
+		socket.to(roomId).emit('user-connected', userId, userAvatar)
+		socket.on("on-my-cam", () => {
+			socket.emit("list-user", rooms[roomId]);
+		})
 		socket.on('message', (message) => {
 			io.to(roomId).emit('createMessage', message, userId)
 		})
 		socket.on("off-cam", (userId) => {
-			io.to(roomId).emit('user-off-cam', userId, peerToAvatar[userId])
-		})
-		socket.on("on-cam", (userId) => {
-			io.to(roomId).emit('user-on-cam', userId)
+			io.to(roomId).emit('user-off-cam', userId)
 		})
 		socket.on('disconnect', () => {
-			socket.to(roomId).emit('user-disconnected', userId)
-		})
+			console.log(userId);
+			if (rooms[roomId]) {
+				rooms[roomId] = rooms[roomId].filter((user) => user.userId !== userId);
+				socket.to(roomId).emit('user-disconnected', userId);
+
+			}
+		});
 	})
 })
 
